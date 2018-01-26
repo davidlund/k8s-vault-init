@@ -12,7 +12,7 @@ data:
   config: |
     initContainers:
       - name: vault-init
-        image: alpine:3.5
+        image: davidlund/alpine-curl-jq:latest
         imagePullPolicy: IfNotPresent
         env:
           - name: POD_NAMESPACE
@@ -23,19 +23,15 @@ data:
           - sh
           - -c
           - |
-              apk add -U curl jq &&
-
-              echo "We just wasted time and bandwidth not using a golden image"
-
               KUBE_TOKEN=$(cat /var/run/secrets/kubernetes.io/serviceaccount/token) &&
               KUBE_API="https://$KUBERNETES_SERVICE_HOST:$KUBERNETES_PORT_443_TCP_PORT/api/v1"
               KUBE_API_CERT="/var/run/secrets/kubernetes.io/serviceaccount/ca.crt"
+
               VAULT_ROLE=$(curl --silent \
                                 --cacert "${KUBE_API_CERT}" \
                                 --header "Authorization: Bearer $KUBE_TOKEN" \
                                 $KUBE_API/namespaces/${POD_NAMESPACE}/pods/${HOSTNAME} \
                             | jq -r '.metadata.annotations["vault.initializer.kubernetes.io/role"]') &&
-
               echo "Role: ${VAULT_ROLE}"
 
               VAULT_ENDPOINT=$(curl --silent \
@@ -43,7 +39,6 @@ data:
                                     --header "Authorization: Bearer $KUBE_TOKEN" \
                                     ${KUBE_API}/namespaces/secrets/endpoints/vault \
                             | jq -r '.subsets[0] | "http://\(.addresses[0].ip):\(.ports[0].port)"') &&
-
               echo "Vault URL: ${VAULT_ENDPOINT}"
               echo "HACK ALERT!!!! - speaking to vault over http.... come on....."
 
