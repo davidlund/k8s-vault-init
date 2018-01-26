@@ -1,0 +1,39 @@
+apiVersion: apps/v1beta2
+kind: Deployment
+metadata:
+  initializers:
+    pending: []
+  name: vault
+  namespace: secrets
+  labels:
+    app: vault
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: vault
+  template:
+    metadata:
+      labels:
+        app: vault
+    spec:
+      containers:
+        - name: vault
+          image: vault:0.9.1
+          imagePullPolicy: IfNotPresent
+          env:
+            - name: VAULT_DEV_ROOT_TOKEN_ID
+              value: root
+---
+apiVersion: v1
+kind: Service
+metadata:
+  name: vault
+  namespace: secrets
+spec:
+  selector:
+    app: vault
+  ports:
+  - protocol: TCP
+    port: 8200
+    targetPort: 8200

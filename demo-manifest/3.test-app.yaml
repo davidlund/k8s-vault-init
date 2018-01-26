@@ -1,0 +1,40 @@
+apiVersion: v1
+kind: Namespace
+metadata:
+  name: demo
+---
+apiVersion: v1
+kind: ServiceAccount
+metadata:
+  name: demo-sa
+  namespace: demo
+---
+apiVersion: apps/v1beta2
+kind: Deployment
+metadata:
+  name: test-vault-deployment
+  namespace: demo
+  labels:
+    app: nginx
+  annotations:
+    vault.initializer.kubernetes.io/role: "demo-role"
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: nginx
+  template:
+    metadata:
+      labels:
+        app: nginx
+      annotations:
+         "initializer.kubernetes.io/vault": "true"
+         "vault.initializer.kubernetes.io": "true"
+         "vault.initializer.kubernetes.io/role": "demo-role"
+    spec:
+      serviceAccountName: demo-sa
+      containers:
+        - name: nginx
+          image: nginx:1.7.9
+          ports:
+            - containerPort: 80
