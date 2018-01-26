@@ -27,10 +27,6 @@ spec:
     metadata:
       labels:
         app: nginx
-      annotations:
-         "initializer.kubernetes.io/vault": "true"
-         "vault.initializer.kubernetes.io": "true"
-         "vault.initializer.kubernetes.io/role": "demo-role"
     spec:
       serviceAccountName: demo-sa
       containers:

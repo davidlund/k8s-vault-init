@@ -18,7 +18,7 @@ spec:
     spec:
       containers:
         - name: vault-kubernetes-initializer
-          image: vault-kubernetes-initializer:0.0.3
+          image: vault-kubernetes-initializer:0.0.5
 ---
 apiVersion: admissionregistration.k8s.io/v1alpha1
 kind: InitializerConfiguration

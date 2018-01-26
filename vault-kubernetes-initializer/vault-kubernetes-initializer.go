@@ -174,6 +174,12 @@ func modifyManifest(initializedDeployment *v1beta2.Deployment, deployment *v1bet
 	for i := 0; i < len(initializedDeployment.Spec.Template.Spec.Containers); i++ {
 		initializedDeployment.Spec.Template.Spec.Containers[i].VolumeMounts = append(initializedDeployment.Spec.Template.Spec.Containers[i].VolumeMounts, c.VolumeMounts...)
 	}
+	if initializedDeployment.Spec.Template.ObjectMeta.Annotations == nil {
+		initializedDeployment.Spec.Template.ObjectMeta.Annotations= make(map[string]string)
+	}
+
+	initializedDeployment.Spec.Template.ObjectMeta.Annotations[annotation] = initializedDeployment.ObjectMeta.GetAnnotations()[annotation]
+
 }
 func removeInitializerFromPendingQueue(initializedDeployment *v1beta2.Deployment) {
 	pendingInitializers := initializedDeployment.ObjectMeta.GetInitializers().Pending
