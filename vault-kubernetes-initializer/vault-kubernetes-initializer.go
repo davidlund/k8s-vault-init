@@ -100,7 +100,6 @@ func main() {
 	_, controller := cache.NewInformer(includeUninitializedWatchlist, &v1beta2.Deployment{}, resyncPeriod,
 		cache.ResourceEventHandlerFuncs{
 			AddFunc: func(obj interface{}) {
-				log.Printf("Deployment %s intercepted",obj.(*v1beta2.Deployment).Name)
 				err := initializeDeployment(obj.(*v1beta2.Deployment), c, clientset)
 				if err != nil {
 					log.Println(err)
@@ -121,76 +120,84 @@ func main() {
 }
 
 func initializeDeployment(deployment *v1beta2.Deployment, c *config, clientset *kubernetes.Clientset) error {
-	if deployment.ObjectMeta.GetInitializers() != nil {
-		pendingInitializers := deployment.ObjectMeta.GetInitializers().Pending
+	if isThisInitializer(deployment){
+		log.Printf("Initializing deployment: %s", deployment.Name)
 
-		if initializerName == pendingInitializers[0].Name {
-			log.Printf("Initializing deployment: %s", deployment.Name)
+		o := deployment.DeepCopyObject()
+		initializedDeployment := o.(*v1beta2.Deployment)
 
+		removeInitializerFromPendingQueue(initializedDeployment)
 
-
-			o := deployment.DeepCopyObject()
-
-			initializedDeployment := o.(*v1beta2.Deployment)
-
-			// Remove self from the list of pending Initializers while preserving ordering.
-			if len(pendingInitializers) == 1 {
-				initializedDeployment.ObjectMeta.Initializers = nil
-			} else {
-				initializedDeployment.ObjectMeta.Initializers.Pending = append(pendingInitializers[:0], pendingInitializers[1:]...)
-			}
-
-
-
-			if requireAnnotation {
-				a := deployment.ObjectMeta.GetAnnotations()
-				_, ok := a[annotation]
-				if !ok {
-					log.Printf("Required '%s' annotation missing; skipping vault container injection", annotation)
-					_, err := clientset.AppsV1beta2().Deployments(deployment.Namespace).Update(initializedDeployment)
-					if err != nil {
-						return err
-					}
-					return nil
-				}
-			}
-
-
-
-			// Modify the Deployment's Pod template to include the Envoy container
-			// and configuration volume. Then patch the original deployment.
-			initializedDeployment.Spec.Template.Spec.InitContainers = append(deployment.Spec.Template.Spec.InitContainers, c.InitContainers...)
-			initializedDeployment.Spec.Template.Spec.Volumes = append(deployment.Spec.Template.Spec.Volumes, c.Volumes...)
-
-			for i := 0; i < len(initializedDeployment.Spec.Template.Spec.Containers); i++ {
-				log.Print("Changed Volumes: ", initializedDeployment.Spec.Template.Spec.Containers[i].VolumeMounts)
-				initializedDeployment.Spec.Template.Spec.Containers[i].VolumeMounts = append(initializedDeployment.Spec.Template.Spec.Containers[i].VolumeMounts,c.VolumeMounts...)
-				log.Print("To Volumes: ", initializedDeployment.Spec.Template.Spec.Containers[i].VolumeMounts)
-			}
-
-			oldData, err := json.Marshal(deployment)
+		if notAnnotated(deployment) {
+			log.Printf("Required '%s' annotation missing; skipping vault container injection", annotation)
+			_, err := clientset.AppsV1beta2().Deployments(deployment.Namespace).Update(initializedDeployment)
 			if err != nil {
 				return err
 			}
-
-			newData, err := json.Marshal(initializedDeployment)
-			if err != nil {
-				return err
-			}
-
-			patchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldData, newData, v1beta2.Deployment{})
-			if err != nil {
-				return err
-			}
-
-			_, err = clientset.AppsV1beta2().Deployments(deployment.Namespace).Patch(deployment.Name, types.StrategicMergePatchType, patchBytes)
-			if err != nil {
-				return err
-			}
+			return nil
 		}
+
+		modifyManifest(initializedDeployment, deployment, c)
+
+		mergeAndPatch(initializedDeployment,deployment,clientset)
 	}
 
 	return nil
+}
+
+func mergeAndPatch(initializedDeployment *v1beta2.Deployment, deployment *v1beta2.Deployment, clientset *kubernetes.Clientset) error {
+	oldData, err := json.Marshal(deployment)
+	if err != nil {
+		return err
+	}
+
+	newData, err := json.Marshal(initializedDeployment)
+	if err != nil {
+		return err
+	}
+
+	patchBytes, err := strategicpatch.CreateTwoWayMergePatch(oldData, newData, v1beta2.Deployment{})
+	if err != nil {
+		return err
+	}
+
+	_, err = clientset.AppsV1beta2().Deployments(deployment.Namespace).Patch(deployment.Name, types.StrategicMergePatchType, patchBytes)
+	if err != nil {
+		return err
+	}
+	return nil
+}
+
+func modifyManifest(initializedDeployment *v1beta2.Deployment, deployment *v1beta2.Deployment, c *config) {
+	initializedDeployment.Spec.Template.Spec.InitContainers = append(deployment.Spec.Template.Spec.InitContainers, c.InitContainers...)
+	initializedDeployment.Spec.Template.Spec.Volumes = append(deployment.Spec.Template.Spec.Volumes, c.Volumes...)
+	for i := 0; i < len(initializedDeployment.Spec.Template.Spec.Containers); i++ {
+		initializedDeployment.Spec.Template.Spec.Containers[i].VolumeMounts = append(initializedDeployment.Spec.Template.Spec.Containers[i].VolumeMounts, c.VolumeMounts...)
+	}
+}
+func removeInitializerFromPendingQueue(initializedDeployment *v1beta2.Deployment) {
+	pendingInitializers := initializedDeployment.ObjectMeta.GetInitializers().Pending
+	if len(pendingInitializers) == 1 {
+		initializedDeployment.ObjectMeta.Initializers = nil
+	} else {
+		initializedDeployment.ObjectMeta.Initializers.Pending = append(pendingInitializers[:0], pendingInitializers[1:]...)
+	}
+}
+
+func isThisInitializer(deployment *v1beta2.Deployment) bool {
+	return deployment.ObjectMeta.GetInitializers() != nil &&
+		initializerName == deployment.ObjectMeta.GetInitializers().Pending[0].Name;
+}
+
+func notAnnotated(deployment *v1beta2.Deployment) bool {
+	if requireAnnotation {
+		a := deployment.ObjectMeta.GetAnnotations()
+		_, ok := a[annotation]
+		if !ok {
+			return true;
+		}
+	}
+	return false
 }
 
 func configmapToConfig(configmap *corev1.ConfigMap) (*config, error) {
